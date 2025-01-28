@@ -2,12 +2,15 @@
 # Based on redhat-cop's rabbitmq image
 # podman buildx build -f automation/Dockerfile-rabbitmq --all-platforms --manifest quay.io/powercloud/rabbitmq:latest
 
+# Base image selection - Fedora Minimal for small footprint
 FROM registry.fedoraproject.org/fedora-minimal:40
 
+# Version configuration arguments for flexible builds
 ARG ERLANG_VERSION=24.0.5
 ARG RABBITMQ_AUTOCLUSTER_VERSION=0.10.0
 ARG RABBITMQ_VERSION=3.8.22
 
+# Package list for installation (using microdnf in Fedora Minimal)
 ARG INSTALL_PKGS="\
     hostname \
     systemd \
@@ -15,11 +18,13 @@ ARG INSTALL_PKGS="\
     xz \
     rabbitmq-server"
 
+# OpenShift-specific metadata labels
 LABEL io.k8s.description="Lightweight open source message broker" \
       io.k8s.display-name="RabbitMQ" \
       io.openshift.expose-services="4369:epmd, 5671:amqp, 5672:amqp, 25672:http" \
       io.openshift.tags="rabbitmq"
 
+# Environment configuration
 ENV GPG_KEY=0x0A9AF2115F4687BD29803A206B73A36E6026DFCA \
     HOME=/var/lib/rabbitmq \
     RABBITMQ_HOME=/opt/rabbitmq \
@@ -29,6 +34,7 @@ ENV GPG_KEY=0x0A9AF2115F4687BD29803A206B73A36E6026DFCA \
     LANGUAGE=C.UTF-8 \
     LC_ALL=C.UTF-8
 
+# System setup and package installation
 RUN set -xe && \
     microdnf search rabbitmq && \
     microdnf install ${INSTALL_PKGS} -y && \
@@ -40,10 +46,18 @@ RUN set -xe && \
     ln -sf "$RABBITMQ_HOME/plugins" /plugins && \
     rm -rf /var/cache/yum
 
+# Download entrypoint script from redhat-cop repository
 RUN curl -o /usr/local/bin/docker-entrypoint.sh -L https://raw.githubusercontent.com/redhat-cop/containers-quickstarts/refs/heads/main/rabbitmq/docker-entrypoint.sh
+# Switch to non-root user for security
 USER 1001
+# Configure environment path for RabbitMQ binaries
 ENV PATH=$RABBITMQ_HOME/sbin:$PATH
+# Set entrypoint and default command
 ENTRYPOINT ["docker-entrypoint.sh"]
 
+# Expose standard RabbitMQ ports:
+# - 5672: AMQP protocol
+# - 25672: Erlang distribution & CLI tool
 EXPOSE 5672 25672
+# Default command to start RabbitMQ server
 CMD ["rabbitmq-server"]

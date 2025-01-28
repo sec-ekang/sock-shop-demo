@@ -1,43 +1,56 @@
+# Build stage - Compiles application code #
+# Use UBI9 OpenJDK 11 image as build environment
 FROM registry.access.redhat.com/ubi9/openjdk-11:latest as builder
 
+# Temporarily switch to root for package installation
 USER 0
+# Install git and clone application source code
 RUN microdnf install -y git \
     && mkdir -p /src/ \
     && cd /src/ \
     && git clone https://github.com/microservices-demo/queue-master
 
-# Decided to split the steps here to avoid rebuilding/cloning needlessly.
-
+# Separate build step to leverage Docker layer caching
+# (Will only re-run if source code changes)
 RUN cd /src/queue-master && mvn clean package -DskipTests
 
 USER 1001
 
+
+# Runtime stage - Production-ready container #
 FROM registry.access.redhat.com/ubi9/openjdk-11-runtime:latest
 
+# Environment variables for user/group configuration
 ENV	SERVICE_USER=myuser \
 	SERVICE_UID=10001 \
 	SERVICE_GROUP=mygroup \
 	SERVICE_GID=10001
 
+# Switch to root for system package installation
 USER 0
+# Update system and install required dependencies
 RUN microdnf update -y \
     && microdnf install -y nc tzdata openssl ca-certificates fontconfig glibc-langpack-en gzip tar findutils shadow-utils \
     && groupadd -r -g ${SERVICE_GID} ${SERVICE_GROUP} \
     && useradd -r -u ${SERVICE_UID} -g ${SERVICE_GROUP} -m -d /home/${SERVICE_USER} -s /sbin/nologin ${SERVICE_USER}
 
+# Set working directory and expose application port
 WORKDIR /
 EXPOSE 8080
 
+# Copy built application from builder stage
 RUN mkdir -p /opt
 COPY --from=builder /src/queue-master/target/*.jar /opt/app.jar
 RUN	chown -R ${SERVICE_USER}:${SERVICE_GROUP} /opt/app.jar
 
-# Override a jaxb error as it's not included in JDK 11
+# Install JAXB dependencies (missing in JDK 11+)
 RUN mkdir -p /opt/lib \
     && curl -L -o /opt/lib/jaxb-api-2.3.1.jar https://repo1.maven.org/maven2/javax/xml/bind/jaxb-api/2.3.1/jaxb-api-2.3.1.jar \
     && curl -L -o /opt/lib/jaxb-runtime-3.0.1.redhat-00001.jar https://maven.repository.redhat.com/ga/org/glassfish/jaxb/jaxb-runtime/3.0.1.redhat-00001/jaxb-runtime-3.0.1.redhat-00001.jar \
     && chmod 755 /opt/lib/*.jar
 
+# Switch to non-root user for security
 USER ${SERVICE_USER}
 
+# Application entrypoint with security optimizations
 ENTRYPOINT ["java","-Djava.security.egd=file:/dev/urandom", "-jar","/opt/app.jar", "--port=8080"]

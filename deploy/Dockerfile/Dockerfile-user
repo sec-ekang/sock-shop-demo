@@ -1,42 +1,63 @@
+# Use the Red Hat UBI Go toolset image as the builder stage
 FROM registry.access.redhat.com/ubi9/go-toolset:latest as builder
+
+# Set environment variables for source code directory and application configuration
 ENV sourcesdir /go/src/github.com/microservices-demo/user/
 ENV MONGO_HOST mytestdb:27017
 ENV HATEAOS user
 ENV USER_DATABASE mongodb
 
+# Switch to root user to set up the environment
 USER 0
+
+# Create the necessary directories and clone the repository
 RUN mkdir -p /go/src/github.com/microservices-demo/ \
     && cd /go/src/github.com/microservices-demo/ \
     && git clone https://github.com/ocp-power-demos/sock-shop-user.git \
     && mv sock-shop-user user/
 
-# Decided to split the steps here to avoid rebuilding/cloning needlessly.
+# Separate the steps to avoid redundant rebuilding/cloning during incremental builds
+RUN cd /go/src/github.com/microservices-demo/user \
+    && rm -f go.mod \  # Remove any existing go.mod to reinitialize it
+    && go mod init github.com/microservices-demo/user \  # Initialize Go modules
+    && go mod tidy \  # Clean up and ensure dependencies are resolved
+    && GOOS=linux go build . \  # Build the application for Linux
+    && find / -name user -type f  # Verify the binary has been built
 
-RUN cd /go/src/github.com/microservices-demo/user && rm -f go.mod \
-    && go mod init github.com/microservices-demo/user \
-    && go mod tidy && GOOS=linux go build . && find / -name user -type f
+# Switch to a non-root user for better security
 USER 1001
 
+# Use a minimal Red Hat UBI image for the runtime stage
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
+# Set environment variables for the service user and group
 ENV     SERVICE_USER=myuser \
         SERVICE_UID=10001 \
         SERVICE_GROUP=mygroup \
         SERVICE_GID=10001
 
+# Install runtime dependencies, create the service user and group, and prepare directories
 RUN microdnf update -y \
     && microdnf install -y nc tzdata openssl ca-certificates fontconfig glibc-langpack-en gzip tar findutils shadow-utils \
-    && groupadd -r -g ${SERVICE_GID} ${SERVICE_GROUP} \
-    && useradd -r -u ${SERVICE_UID} -g ${SERVICE_GROUP} -m -d /home/${SERVICE_USER} -s /sbin/nologin ${SERVICE_USER} \
-    && mkdir -p /opt
+    && groupadd -r -g ${SERVICE_GID} ${SERVICE_GROUP} \  # Create the service group
+    && useradd -r -u ${SERVICE_UID} -g ${SERVICE_GROUP} -m -d /home/${SERVICE_USER} -s /sbin/nologin ${SERVICE_USER} \  # Create the service user
+    && mkdir -p /opt  # Create the application directory
 
+# Set the working directory for the application
 WORKDIR /opt
+
+# Expose the application's port
 EXPOSE 8080
+
+# Copy the built binary from the builder stage to the runtime image
 COPY --from=builder /go/src/github.com/microservices-demo/user/user /opt/
 
-RUN     chmod +x /opt/user && \
-        chown -R ${SERVICE_USER}:${SERVICE_GROUP} /opt/user
+# Make the binary executable and set ownership to the service user and group
+RUN     chmod +x /opt/user \  # Make the binary executable
+        && chown -R ${SERVICE_USER}:${SERVICE_GROUP} /opt/user  # Change ownership
 
+# Switch to the non-root service user for security
 USER ${SERVICE_USER}
 
+# Define the command to run the application
 CMD ["/opt/user", "-port=8080"]

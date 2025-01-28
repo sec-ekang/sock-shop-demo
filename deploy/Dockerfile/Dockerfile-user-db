@@ -1,32 +1,45 @@
+# Use the Red Hat UBI Go toolset image as the builder stage to prepare source code
 FROM registry.access.redhat.com/ubi9/go-toolset:latest as builder
+
+# Set environment variables for the source directory and application configuration
 ENV sourcesdir /go/src/github.com/microservices-demo/user/
 ENV MONGO_HOST mytestdb:27017
 ENV HATEAOS user
 ENV USER_DATABASE mongodb
 
+# Switch to root user to set up the environment
 USER 0
+
+# Create the source directory, navigate to it, and clone the user service repository
 RUN mkdir -p /go/src/github.com/microservices-demo/ \
     && cd /go/src/github.com/microservices-demo/ \
     && git clone https://github.com/microservices-demo/user.git
 
+# Use the official MongoDB image as the base for the final runtime stage
 FROM docker.io/library/mongo:3
+
+# Copy database initialization scripts from the builder stage
 COPY --from=builder /go/src/github.com/microservices-demo/user/docker/user-db/scripts /docker-entrypoint-initdb.d/
 
-ADD files/mongodb.conf /etc
-ADD files/cleanup-users-init.sh /bin
+# Add MongoDB configuration and cleanup script to the appropriate locations
+ADD files/mongodb.conf /etc          # Add custom MongoDB configuration file
+ADD files/cleanup-users-init.sh /bin # Add custom cleanup script for user initialization
 
-# Modify child mongo to use /data/db-accounts as dbpath (because /data/db wont persist the build because it is already a VOLUME)
-RUN mkdir -p /data/db-users \
-    && chown -R mongodb:mongodb /data/db-users \
-    && mkdir -p /logs \
-    && chown -R mongodb:mongodb /logs \
-    && rm -f /docker-entrypoint-initdb.d/mongo_create_insert.sh \
-    && chmod +x /bin/cleanup-users-init.sh \
-    && bash /bin/cleanup-users-init.sh
+# Modify the MongoDB data directory to use a custom path for better persistence
+# Create necessary directories and set proper ownership for the MongoDB user
+RUN mkdir -p /data/db-users \                     # Create a custom data directory
+    && chown -R mongodb:mongodb /data/db-users \  # Set ownership for MongoDB
+    && mkdir -p /logs \                           # Create a directory for logs
+    && chown -R mongodb:mongodb /logs \          # Set ownership for logs
+    && rm -f /docker-entrypoint-initdb.d/mongo_create_insert.sh \ # Remove redundant script
+    && chmod +x /bin/cleanup-users-init.sh \     # Make the cleanup script executable
+    && bash /bin/cleanup-users-init.sh           # Execute the cleanup script
 
+# Switch to the MongoDB user for better security
 USER mongodb
 
-# Make the new dir a VOLUME to persist it
+# Declare the custom data directory as a volume for persistent storage
 VOLUME /data/db-users
 
+# Define the command to start MongoDB with the custom configuration
 CMD ["mongod", "--config", "/etc/mongodb.conf", "--smallfiles"]
