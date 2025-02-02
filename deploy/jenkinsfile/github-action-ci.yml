@@ -1,0 +1,132 @@
+name: Build and Deploy to ECR
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REPO: 'github_id/your_repo'
+  IMAGE_NAME: 'image_name'
+  AWS_REGION: 'region'  # e.g., ap-northeast-2
+  ECR_REGISTRY: 'aws_account_id.dkr.ecr.region.amazonaws.com'
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+      with:
+        repository: ${{ env.REPO }}
+        ref: main
+        ssh-key: ${{ secrets.JENKINS_SSH_KEY }}
+
+    - name: Initialize Git Submodules
+      run: |
+        git submodule init
+        git submodule update --remote --merge
+        chmod +x ./gradlew
+
+    - name: Remove Previous Docker Images
+      run: |
+        images=$(docker images -q '${{ env.IMAGE_NAME }}')
+        if [ ! -z "$images" ]; then
+          docker rmi -f $images || true
+        else
+          echo "No Docker images found with name: ${{ env.IMAGE_NAME }}"
+        fi
+
+    - name: Build Docker Image
+      run: |
+        docker build -t ${{ env.IMAGE_NAME }}:v0.0.${{ github.run_number }} .
+
+    - name: Run Test Container
+      run: |
+        docker run -d --name run-test -p 8000:8080 ${{ env.IMAGE_NAME }}:v0.0.${{ github.run_number }}
+
+    - name: Health Check
+      id: health_check
+      run: |
+        RETRIES=10
+        for i in $(seq 1 $RETRIES); do
+          http_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health)
+          if [ "$http_code" -eq 200 ]; then
+            echo "Health check passed with status code: $http_code"
+            echo "HTTP_CODE=$http_code" >> $GITHUB_ENV
+            break
+          else
+            echo "Attempt $i/$RETRIES failed with status code: $http_code. Retrying..."
+            sleep 5
+          fi
+        done
+
+    - name: Cleanup Test Environment
+      run: |
+        docker stop run-test || true
+        docker rm run-test || true
+
+    - name: Validate Health Check
+      run: |
+        if [ "${{ env.HTTP_CODE }}" != "200" ]; then
+          echo "Health Check Failure with status code: ${{ env.HTTP_CODE }}"
+          exit 1
+        fi
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      run: |
+        aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+
+    - name: Push Docker Image to ECR
+      run: |
+        docker tag ${{ env.IMAGE_NAME }}:v0.0.${{ github.run_number }} ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:v0.0.${{ github.run_number }}
+        docker push ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:v0.0.${{ github.run_number }}
+
+    - name: Trigger CD Workflow
+      uses: benc-uk/workflow-dispatch@v1
+      with:
+        workflow: paperple-be-cd.yml
+        repo: ${{ env.REPO }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        inputs: |
+          IMAGE_TAG: v0.0.${{ github.run_number }}
+
+    - name: Notify Slack on Success
+      if: success()
+      run: |
+        curl -X POST -H 'Content-type: application/json' --data \
+        '{
+          "channel": "#Cloud",
+          "username": "GitHub Actions",
+          "attachments": [
+            {
+              "color": "#00FF00",
+              "text": "BUILD SUCCESS: ${{ env.REPO }} BUILD Job ${{ github.workflow }} [${{ github.run_number }}]"
+            }
+          ]
+        }' $SLACK_WEBHOOK_URL
+
+    - name: Notify Slack on Failure
+      if: failure()
+      run: |
+        curl -X POST -H 'Content-type: application/json' --data \
+        '{
+          "channel": "#Cloud",
+          "username": "GitHub Actions",
+          "attachments": [
+            {
+              "color": "#FF0000",
+              "text": "BUILD FAIL: ${{ env.REPO }} BUILD Job ${{ github.workflow }} [${{ github.run_number }}]"
+            }
+          ]
+        }' $SLACK_WEBHOOK_URL

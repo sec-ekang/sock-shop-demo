@@ -1,0 +1,59 @@
+pipeline {
+    agent any
+    parameters {
+        string(name: 'IMAGE_TAG', defaultValue: 'v0', description: 'Docker image tag to deploy')
+    }
+    
+    environment {
+        // Update these values with your actual repository and image information for the Front-End
+        REPO = 'github_id/your_frontend_repo'
+        IMAGE_NAME = 'frontend_image_name'
+        USERNAME = 'github_username'
+        GITHUB_ID = 'github-token'
+    }
+    
+    stages {
+        stage('Clone Repository') {
+            steps {
+                git url: "https://github.com/${REPO}.git", branch: 'main'
+            }
+        }
+        
+        stage('Update Deployment YAML') {
+            steps {
+                // Update the image tag in the deployment.yaml file
+                sh "sed -i 's/${IMAGE_NAME}:.*/${IMAGE_NAME}:${params.IMAGE_TAG}/' deployment.yaml"
+                echo "Updated image to: ${IMAGE_NAME}:${params.IMAGE_TAG}"
+            }
+        }
+        
+        stage('Push Changes to GitHub') {
+            steps {
+                withCredentials([string(credentialsId: "${GITHUB_ID}", variable: 'GITHUB_CREDENTIAL')]) {
+                    sh 'git config user.email your-email@example.com'
+                    sh "git config user.name ${USERNAME}"
+                    sh 'git add .'
+                    sh "git commit -m 'update: FE Image Update ${params.IMAGE_TAG}'"
+                    sh 'git push https://$GITHUB_CREDENTIAL@github.com/your_org/your_frontend_repo.git HEAD:main'
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            slackSend (
+                channel: '#Cloud', 
+                color: '#00FF00', 
+                message: "CD Trigger SUCCESS: FE CD Trigger Job ${env.JOB_NAME} [${params.IMAGE_TAG}]"
+            )
+        }
+        failure {
+            slackSend (
+                channel: '#Cloud', 
+                color: '#FF0000', 
+                message: "CD Trigger FAIL: FE CD Trigger Job ${env.JOB_NAME} [${params.IMAGE_TAG}]"
+            )
+        }
+    }
+}

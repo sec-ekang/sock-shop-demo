@@ -1,0 +1,58 @@
+pipeline {
+    agent any
+    parameters {
+        string(name: 'IMAGE_TAG', defaultValue: 'v0')
+    }
+    
+    environment {
+        REPO = 'github_id/your_repo'
+        IMAGE_NAME = 'image_name'
+        USERNAME = 'github_username'
+        GITHUB_ID = 'github-token'
+    }
+    
+    stages {
+        stage('Clone Repository'){
+            steps {
+                git url: "https://github.com/${REPO}.git", branch: 'main'
+            }
+        }
+        
+        stage('Update YAML') {
+            steps{
+                sh "sed -i 's/${env.IMAGE_NAME}:.*/${env.IMAGE_NAME}:${env.IMAGE_TAG}/' deployment.yaml"
+                echo "${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+            }
+        }
+        
+        
+        stage('GitHub Push') {
+            steps{
+                withCredentials([string(credentialsId: "${env.GITHUB_ID}", variable: 'GITHUB_CREDENTIAL')]){
+                    sh 'git config user.email hnnynh125@gmail.com'
+                    sh "git config user.name ${env.USERNAME}"
+                    sh 'git add .'
+                    sh "git commit -m 'update: BE Image Update ${env.IMAGE_TAG}'"
+                    sh 'git push https://$GITHUB_CREDENTIAL@github.com/lunch-12/PAPERPLE-CD.git HEAD:main'
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            slackSend (
+                channel: '#Cloud', 
+                color: '#00FF00', 
+                message: "CD Trigger SUCCESS: BE CD Trigger Job ${env.JOB_NAME} [${env.IMAGE_TAG}]"
+            )
+        }
+        failure {
+            slackSend (
+                channel: '#Cloud', 
+                color: '#FF0000', 
+                message: "CD Trigger FAIL: BE CD Trigger Job ${env.JOB_NAME} [${env.IMAGE_TAG}]"
+            )
+        }
+    }
+}

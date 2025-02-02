@@ -1,0 +1,76 @@
+name: BE CD Trigger Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      IMAGE_TAG:
+        description: 'Tag for the Docker image'
+        required: true
+        default: 'v0'
+
+env:
+  REPO: 'github_id/your_repo'
+  IMAGE_NAME: 'image_name'
+  USERNAME: 'github_username'
+  EMAIL: 'id@email.com'
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  cd_trigger:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+      with:
+        repository: ${{ env.REPO }}
+        ref: main
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update YAML
+      run: |
+        sed -i 's/${{ env.IMAGE_NAME }}:.*/${{ env.IMAGE_NAME }}:${{ github.event.inputs.IMAGE_TAG }}/' deployment.yaml
+        echo "${{ env.IMAGE_NAME }}:${{ github.event.inputs.IMAGE_TAG }}"
+
+    - name: Configure Git
+      run: |
+        git config user.email "${{ env.EMAIL }}"
+        git config user.name "${{ env.USERNAME }}"
+
+    - name: Commit and Push Changes
+      env:
+        GITHUB_CREDENTIAL: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git add .
+        git commit -m "update: BE Image Update ${{ github.event.inputs.IMAGE_TAG }}"
+        git push https://$GITHUB_CREDENTIAL@github.com/${{ env.REPO }}.git HEAD:main
+
+    - name: Notify Slack on Success
+      if: success()
+      run: |
+        curl -X POST -H 'Content-type: application/json' --data \
+        '{
+          "channel": "#Cloud",
+          "username": "GitHub Actions",
+          "attachments": [
+            {
+              "color": "#00FF00",
+              "text": "CD Trigger SUCCESS: BE CD Trigger Job ${{ github.workflow }} [${{ github.event.inputs.IMAGE_TAG }}]"
+            }
+          ]
+        }' $SLACK_WEBHOOK_URL
+
+    - name: Notify Slack on Failure
+      if: failure()
+      run: |
+        curl -X POST -H 'Content-type: application/json' --data \
+        '{
+          "channel": "#Cloud",
+          "username": "GitHub Actions",
+          "attachments": [
+            {
+              "color": "#FF0000",
+              "text": "CD Trigger FAIL: BE CD Trigger Job ${{ github.workflow }} [${{ github.event.inputs.IMAGE_TAG }}]"
+            }
+          ]
+        }' $SLACK_WEBHOOK_URL

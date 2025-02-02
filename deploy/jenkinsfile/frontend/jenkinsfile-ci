@@ -1,0 +1,187 @@
+pipeline {
+    agent any
+
+    environment {
+        // Replace with your GitHub repository for the frontend code
+        REPO         = 'github_id/your_frontend_repo'
+        // Name of the Docker image to build
+        IMAGE_NAME   = 'frontend_image'
+        // AWS ECR registry (example: 024848437933.dkr.ecr.ap-northeast-2.amazonaws.com)
+        ECR_REGISTRY = 'aws_account_id.dkr.ecr.region.amazonaws.com'
+        // Jenkins credential ID for ECR access
+        ECR_ACCESS   = 'ECR_Access'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                script {
+                    // Checkout the repository using SSH credentials
+                    git url: "git@github.com:${env.REPO}.git", branch: 'main', credentialsId: 'jenkins-ssh'
+                }
+            }
+        }
+        
+        stage('Initialize Submodules') {
+            steps {
+                script {
+                    // If your repository uses submodules, initialize and update them
+                    sh '''
+                        git submodule init
+                        git submodule update --remote --merge
+                    '''
+                }
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                script {
+                    // Install Node.js dependencies (e.g., for React, Angular, or Vue)
+                    sh 'npm install'
+                }
+            }
+        }
+        
+        stage('Build Application') {
+            steps {
+                script {
+                    // Build the front-end application (for example, using "npm run build")
+                    sh 'npm run build'
+                }
+            }
+        }
+        
+        stage('Remove Previous Docker Image') {
+            steps {
+                script {
+                    def images = sh(script: "docker images -q '${IMAGE_NAME}'", returnStdout: true).trim()
+                    if (images) {
+                        // Remove previous Docker images. If the container is running, stop and remove it first.
+                        sh "docker rmi -f ${images} || true"
+                        try {
+                            sh "docker rmi -f ${images}"
+                        } catch (Exception e) {
+                            sh 'docker stop run-test'
+                            sh 'docker rm run-test'
+                            sh "docker rmi -f ${images}"
+                        }
+                        echo "Deleted Docker images: ${images}"
+                    } else {
+                        echo "No Docker images found with name: ${IMAGE_NAME}"
+                    }
+                }
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Build the Docker image.
+                    // Ensure that your Dockerfile is configured to serve the built assets (e.g., using Nginx)
+                    dockerImage = docker.build("${IMAGE_NAME}:v0.0.${env.BUILD_NUMBER}")
+                }
+            }
+        }
+        
+        stage('Run Test Container') {
+            steps {
+                script {
+                    // Run the Docker container in detached mode for testing.
+                    // Map the container's port 80 (e.g., Nginx default) to host port 8000.
+                    sh "docker run -d --name run-test -p 8000:80 ${IMAGE_NAME}:v0.0.${env.BUILD_NUMBER}"
+                }
+            }
+        }
+        
+        stage('Call Health Check API') {
+            steps {
+                script {
+                    def httpCode
+                    def retry = true
+                    
+                    // Check if the application is up by calling its health endpoint.
+                    // In this example, we are checking for a 200 HTTP response code.
+                    while (retry) {
+                        try {
+                            httpCode = sh(script: 'curl -s -o /dev/null -w %{http_code} http://localhost:8000', returnStdout: true).trim()
+                            if (httpCode == '200') {
+                                retry = false
+                                env.HTTP_CODE = httpCode
+                            } else {
+                                echo "Received HTTP code: ${httpCode}. Retrying in 5 seconds..."
+                            }
+                        } catch (Exception e) {
+                            echo "Error occurred: ${e.message}. Retrying in 5 seconds..."
+                        }
+                        sleep(5)
+                    }
+                }
+            }
+        }
+        
+        stage('Test Env Cleanup') {
+            steps {
+                script {
+                    // Stop and remove the test container
+                    sh 'docker stop run-test'
+                    sh 'docker rm run-test'
+                }
+            }
+        }
+        
+        stage('Health Check') {
+            steps {
+                script {
+                    // Fail the build if the health check did not return a 200 status code
+                    if (env.HTTP_CODE != '200') {
+                        echo "Health check failed with code: ${env.HTTP_CODE}"
+                        error("Health Check Failure: ${env.HTTP_CODE}")
+                    } else {
+                        echo "Health check passed with code: ${env.HTTP_CODE}"
+                    }
+                }
+            }
+        }
+        
+        stage('Push to ECR') {
+            steps {
+                script {
+                    // Push the Docker image to AWS ECR.
+                    docker.withRegistry("https://${env.ECR_REGISTRY}", "ecr:region:${env.ECR_ACCESS}") {
+                        docker.image("${env.IMAGE_NAME}:v0.0.${env.BUILD_NUMBER}").push()
+                    }
+                }
+            }
+        }
+      
+        stage('Trigger CD Job') {
+            steps {
+                script {
+                    echo "IMAGE_TAG = v0.0.${env.BUILD_NUMBER}"
+                    // Trigger the Continuous Deployment job (replace 'online-sockshop-fe-cd' with your actual CD jenkins job name)
+                    build job: 'online-sockshop-fe-cd', 
+                          parameters: [string(name: 'IMAGE_TAG', value: "v0.0.${env.BUILD_NUMBER}")],
+                          wait: false
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            slackSend (
+                channel: '#Cloud', 
+                color: '#00FF00', 
+                message: "BUILD SUCCESS: ${REPO} BUILD Job ${env.JOB_NAME} [${env.BUILD_NUMBER}]"
+            )
+        }
+        failure {
+            slackSend (
+                channel: '#Cloud', 
+                color: '#FF0000', 
+                message: "BUILD FAIL: ${REPO} BUILD Job ${env.JOB_NAME} [${env.BUILD_NUMBER}]"
+            )
+        }
+    }
+}
