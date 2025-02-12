@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentd-config
+  namespace: kube-logging
+  labels:
+    app: fluentd
+data:
+  fluent.conf: |
+    <source>
+      @type tail
+      @id in_tail_container_logs
+      @label @KUBERNETES
+      path /var/log/containers/*.log
+      pos_file /var/log/fluentd-containers.log.pos
+      tag kubernetes.*
+      read_from_head true
+      <parse>
+        @type regexp
+        expression /^(?<time>.+) (?<stream>stdout|stderr)( (?<logtag>.*))? (?<log>.*)$/
+        unmatched_lines true
+      </parse>
+      emit_unmatched_lines true
+    </source>
+
+    <label @KUBERNETES>
+      # Filter out logs from specific namespaces or containers
+      <match kubernetes.var.log.containers.*>
+        @type relabel
+        @label @FILTER
+      </match>
+    </label>
+
+    <label @FILTER>
+      # Exclude specific log messages or tags
+      <filter **>
+        @type grep
+        <exclude>
+          key log
+          pattern /unwanted_pattern/
+        </exclude>
+      </filter>
+
+      <match **>
+        @type relabel
+        @label @DISPATCH
+      </match>
+    </label>
+
+    <label @DISPATCH>
+      <match **>
+        @type elasticsearch
+        @id elasticsearch
+        host "elasticsearch.kube-logging.svc.cluster.local"
+        port "9200"
+        scheme "http"
+        logstash_format true
+        logstash_prefix fluentd
+        type_name _doc
+        <buffer>
+          @type memory
+          timekey 5
+          timekey_wait 5
+          flush_interval 10s
+        </buffer>
+        max_retry_wait 30s
+        disable_retry_limit
+        num_threads 2
+        request_timeout 30s
+      </match>
+    </label>

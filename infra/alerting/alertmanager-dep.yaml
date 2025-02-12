@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+      - name: alertmanager
+        image: prom/alertmanager:latest
+        env:
+          - name: SLACK_HOOK_URL
+            valueFrom:
+              secretKeyRef:
+                name: slack-hook-url
+                key: SLACK_HOOK_URL
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            cp /etc/alertmanager/alertmanager.yml /tmp/alertmanager.yml && \
+            sed -i -e s,http://placeholder,"$SLACK_HOOK_URL",g /tmp/alertmanager.yml && \
+            exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager
+        ports:
+        - name: alertmanager
+          containerPort: 9093
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/alertmanager
+        - name: tmp-volume
+          mountPath: /tmp
+        securityContext:
+          readOnlyRootFilesystem: false
+      volumes:
+      - name: config-volume
+        configMap:
+          name: alertmanager
+      - name: tmp-volume
+        emptyDir: {}
+      nodeSelector:
+        kubernetes.io/os: linux

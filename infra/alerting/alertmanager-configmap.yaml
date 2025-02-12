@@ -1,0 +1,27 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: alertmanager
+  namespace: monitoring
+data:
+  alertmanager.yml: |-
+    global:
+      resolve_timeout: 5m
+      slack_api_url: "http://placeholder"
+
+    route:
+      group_by: [cluster]
+      receiver: slack-notification
+      routes:
+        - match:
+            severity: critical|warning|slack
+          receiver: slack-notification
+
+    receivers:
+    - name: 'slack-notification'
+      slack_configs:
+      - channel: '#sock-shop'
+        send_resolved: true
+        title: "{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}"
+        text: "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
+        api_url: "http://placeholder"

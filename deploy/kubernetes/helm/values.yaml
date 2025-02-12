@@ -1,0 +1,148 @@
+# Default namespace. You can also use the --namespace flag when installing.
+namespace: sock-shop
+
+carts:
+  replicaCount: 1
+  image:
+    repository: weaveworksdemos/carts
+    tag: "0.4.8"
+  resources:
+    limits:
+      cpu: "300m"
+      memory: "500Mi"
+    requests:
+      cpu: "100m"
+      memory: "200Mi"
+
+cartsDb:
+  replicaCount: 1
+  image:
+    repository: mongo
+    tag: "latest"
+
+catalogue:
+  replicaCount: 1
+  image:
+    repository: weaveworksdemos/catalogue
+    tag: "0.3.5"
+  resources:
+    limits:
+      cpu: "200m"
+      memory: "200Mi"
+    requests:
+      cpu: "100m"
+      memory: "100Mi"
+
+catalogueDb:
+  replicaCount: 1
+  image:
+    repository: weaveworksdemos/catalogue-db
+    tag: "0.3.0"
+  env:
+    MYSQL_ROOT_PASSWORD: fake_password
+    MYSQL_DATABASE: socksdb
+
+frontEnd:
+  replicaCount: 1
+  image:
+    repository: weaveworksdemos/front-end
+    tag: "0.3.12"
+  nodePort: 30001
+  resources:
+    limits:
+      cpu: "300m"
+      memory: "1000Mi"
+    requests:
+      cpu: "100m"
+      memory: "300Mi"
+
+orders:
+  replicaCount: 1
+  image:
+    repository: weaveworksdemos/orders
+    tag: "0.4.7"
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "500Mi"
+    requests:
+      cpu: "100m"
+      memory: "300Mi"
+
+ordersDb:
+  replicaCount: 1
+  image:
+    repository: mongo
+    tag: "latest"
+
+payment:
+  replicaCount: 1
+  image:
+    repository: weaveworksdemos/payment
+    tag: "0.4.3"
+  resources:
+    limits:
+      cpu: "200m"
+      memory: "200Mi"
+    requests:
+      cpu: "99m"
+      memory: "100Mi"
+
+queueMaster:
+  replicaCount: 1
+  image:
+    repository: weaveworksdemos/queue-master
+    tag: "0.3.1"
+  resources:
+    limits:
+      cpu: "300m"
+      memory: "500Mi"
+    requests:
+      cpu: "100m"
+      memory: "300Mi"
+
+rabbitmq:
+  replicaCount: 1
+  image:
+    repository: rabbitmq
+    tag: "3.6.8-management"
+
+rabbitmqExporter:
+  image:
+    repository: kbudde/rabbitmq-exporter
+    tag: "latest"
+
+sessionDb:
+  replicaCount: 1
+  image:
+    repository: redis
+    tag: "alpine"
+
+shipping:
+  replicaCount: 1
+  image:
+    repository: weaveworksdemos/shipping
+    tag: "0.4.8"
+  env:
+    ZIPKIN: zipkin.jaeger.svc.cluster.local
+
+user:
+  replicaCount: 1
+  image:
+    repository: weaveworksdemos/user
+    tag: "0.4.7"
+  env:
+    mongo: "user-db:27017"
+  resources:
+    limits:
+      cpu: "300m"
+      memory: "200Mi"
+    requests:
+      cpu: "100m"
+      memory: "100Mi"
+
+userDb:
+  replicaCount: 1
+  image:
+    repository: weaveworksdemos/user-db
+    tag: "0.3.0"

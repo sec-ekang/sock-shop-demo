@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carts
+  namespace: {{ .Values.namespace }}
+  annotations:
+    prometheus.io/scrape: 'true'
+  labels:
+    name: carts
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    name: carts
