@@ -110,7 +110,7 @@
 - **ECR**
   - **Elastic Container Registry:**
     - **Repositories:**
-      - **paperple-spring:** Frontend Image
-      - **paperple-ai:** Backend Image
+      - **sockshop-orders:** Orders Image
+      - **sockshop-carts:** Carts Image
     - **Scan on Push:** Enabled
     - **Encryption:** Enabled (KMS Managed Keys)
