@@ -4,6 +4,8 @@
 
 echo "Running post-provisioning steps..."
 
+echo "your_password" | sudo -S ls
+
 # Update package index and upgrade installed packages
 sudo apt-get update
 sudo apt-get upgrade -y

@@ -20,6 +20,7 @@ This project uses Packer to build a custom Ubuntu image from a source virtual ma
 2. **Run Packer Build**:  
    From the project root, run:
    ```bash
+   packer init ubuntu-custom.pkr.hcl
    packer build ubuntu-custom.pkr.hcl
 
 3. **Run Pakcer Build with Secret Management**:

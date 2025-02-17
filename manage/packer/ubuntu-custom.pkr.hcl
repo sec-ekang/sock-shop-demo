@@ -1,13 +1,12 @@
----
-
-### File: `ubuntu-custom.pkr.hcl`
-
-```hcl
 packer {
   required_plugins {
     vmware = {
       version = ">= 1.0.0"
       source  = "github.com/hashicorp/vmware"
+    }
+    vagrant = {
+      version = ">= 1.1.0"
+      source  = "github.com/hashicorp/packer-plugin-vagrant"
     }
   }
 }
@@ -30,11 +29,11 @@ variable "ssh_password" {
 
 source "vmware-vmx" "ubuntu_custom" {
   # The path to the source VM's .vmx file (provided via variables)
-  vmx_data = var.source_vmx
+  source_path = var.source_vmx
 
   ssh_username     = var.ssh_username
   ssh_password     = var.ssh_password
-  shutdown_command = "sudo shutdown -P now"
+  shutdown_command = "echo 'your_password' | sudo -S shutdown -P now"
 
   # Adjust additional builder settings as needed
 }

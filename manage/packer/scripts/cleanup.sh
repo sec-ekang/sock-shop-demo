@@ -4,6 +4,8 @@
 
 echo "Starting cleanup process..."
 
+echo "your_password" | sudo -S ls
+
 # Clean up APT cache
 sudo apt-get clean
 
